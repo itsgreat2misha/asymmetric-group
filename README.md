@@ -52,7 +52,7 @@ A fourth switch, **Enforce power scope** (off by default), reconciles lights tha
 - Lights that **entered** the set are turned on, but only if the group was actually lit through its old set (at least one old-set light on). If the group was dark, the new set is only staged — nothing turns on.
 - A light that is on but was in neither the old nor the new set (turned on by hand while excluded) is left alone, and doesn't count as "the group was lit".
 
-Enforcement never fires on startup or restart — only on a live change — and flipping the Enforce switch itself changes nothing until the next scope change. A typical use: a lighting theme narrows the group for a "Dim" scene; with enforcement on, entering the scene also switches off the room's other lights that happened to be on, instead of only filtering the next turn-on.
+Enforcement never fires on startup or restart — only on a live change — and flipping the Enforce switch itself changes nothing until the next scope change. One refinement: when enforcement turns lights off, it re-asserts the scope for exactly those lights twice more over the following minute (at ~20s and ~50s), in case something else turns them back on in the meantime — Adaptive Lighting, for example, re-lights its lights when its sleep-mode switch toggles during a theme change. The re-checks use the scope as it stands when they run, so changing your mind (widening the scope again) cancels their effect. A typical use: a lighting theme narrows the group for a "Dim" scene; with enforcement on, entering the scene also switches off the room's other lights that happened to be on, instead of only filtering the next turn-on.
 
 ## Controlling groups from automations
 
