@@ -12,11 +12,14 @@ Editing the entry's options clears that Store, re-seeding from config.
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import logging
+import time
 from collections.abc import Callable
 
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.event import async_call_later
+from homeassistant.core import Event, HomeAssistant
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
 from . import engine
@@ -50,6 +53,8 @@ _CONFIG_TOGGLE_MAP = {
     CONF_ENFORCE_POWER_SCOPE: TOGGLE_ENFORCE,
 }
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class GroupRuntime:
     """Mutable runtime state for one Asymmetric Group config entry."""
@@ -69,8 +74,6 @@ class GroupRuntime:
         # changes made after setup — never during load/restore — so a
         # restart can never strike or kill lights on its own.
         self._live = False
-        # Cancel callbacks for scheduled enforcement re-assertions.
-        self._recheck_unsubs: list[Callable[[], None]] = []
 
         # --- seed from config -------------------------------------------
         self.toggles: dict[str, bool] = {
@@ -204,6 +207,26 @@ class GroupRuntime:
 
     # ------------------------------------------------------------------
     # Scope enforcement (Enforce power scope toggle)
+    #
+    # Settle behaviour: a scope change does not return until the
+    # lights enforcement touched have *registered* their new states,
+    # so a caller sequencing other work after the change (an
+    # automation arming the scope before flipping other integrations'
+    # switches, say) gets true ordering instead of racing in-flight
+    # state updates. The wait is event-driven and per target:
+    #   - already in the desired state, or unavailable/unknown when
+    #     the wait starts: skipped instantly, silently;
+    #   - reaches the desired state: resolved;
+    #   - drops to unavailable/unknown mid-wait, or is still reporting
+    #     the old state a grace period after its command (alive but
+    #     not complying): dropped from the wait and named in a single
+    #     aggregated warning for the whole scope change;
+    #   - never reports at all: ended by the backstop timeout and
+    #     named in the same warning. The backstop is a safety net
+    #     only — the event-driven drops end real-world waits.
+    _SETTLE_BACKSTOP_SECONDS = 10.0
+    _SETTLE_NONCOMPLIANCE_GRACE_SECONDS = 2.0
+
     async def _async_enforce_power_scope(self, old_power_on: list[str]) -> None:
         """Reconcile lit members after the effective power-ON set changed.
 
@@ -213,7 +236,11 @@ class GroupRuntime:
         the set and are on are turned off; members that entered the
         set are turned on only if the group was lit through its old
         scope. Enforcement issues plain light calls — it never changes
-        the scope itself, so it cannot re-trigger.
+        the scope itself, so it cannot re-trigger. Before returning,
+        the change waits until those calls have settled (see the
+        settle rules above), so the mutation callers — the toggle
+        switches, apply_preset, set_members — all hand their callers a
+        fully-applied scope change.
         """
         if not self._live or not self.toggles.get(TOGGLE_ENFORCE):
             return
@@ -228,6 +255,7 @@ class GroupRuntime:
         to_turn_off, to_turn_on = engine.plan_enforcement(
             old_power_on, new_power_on, currently_on
         )
+        targets: dict[str, str] = {}
         if to_turn_off:
             await self.hass.services.async_call(
                 "light",
@@ -235,7 +263,7 @@ class GroupRuntime:
                 {"entity_id": to_turn_off},
                 blocking=False,
             )
-            self._schedule_rechecks(to_turn_off)
+            targets.update({member: "off" for member in to_turn_off})
         if to_turn_on:
             await self.hass.services.async_call(
                 "light",
@@ -243,53 +271,75 @@ class GroupRuntime:
                 {"entity_id": to_turn_on},
                 blocking=False,
             )
-
-    # Re-assertion delay (seconds). One short recheck covers generic
-    # turn-on races: another integration that was mid-apply when the
-    # scope changed — Adaptive Lighting re-lighting its lights as its
-    # switches toggle, for instance — acts within a few seconds, so a
-    # single recheck at 5s re-asserts the scope for exactly the lights
-    # enforcement turned off. Longer cycles belong to the environment
-    # (a theme controller with a settle delay, say) and are
-    # deliberately not chased here: after this one recheck, a light
-    # that comes on stays on.
-    _RECHECK_DELAYS = (5,)
-
-    def _schedule_rechecks(self, removed: list[str]) -> None:
-        members = list(removed)
-
-        async def _recheck(_now, _members=members) -> None:
-            await self._async_enforcement_recheck(_members)
-
-        for delay in self._RECHECK_DELAYS:
-            self._recheck_unsubs.append(
-                async_call_later(self.hass, delay, _recheck)
-            )
-
-    async def _async_enforcement_recheck(self, members: list[str]) -> None:
-        """Re-assert the scope for lights enforcement removed earlier.
-
-        Evaluated against the *current* scope: if the scope widened
-        again in the meantime (theme changed back), the members are in
-        scope and nothing happens. Only a member that is on while
-        outside the current effective power-ON set is turned off.
-        """
-        if not self._live or not self.toggles.get(TOGGLE_ENFORCE):
-            return
-        effective = set(self.effective_sets()["power_on"])
-        targets = []
-        for member in members:
-            if member in effective:
-                continue
-            state = self.hass.states.get(member)
-            if state is not None and state.state == "on":
-                targets.append(member)
+            targets.update({member: "on" for member in to_turn_on})
         if targets:
-            await self.hass.services.async_call(
-                "light",
-                "turn_off",
-                {"entity_id": targets},
-                blocking=False,
+            await self._async_wait_until_settled(targets)
+
+    async def _async_wait_until_settled(self, targets: dict[str, str]) -> None:
+        """Wait until enforcement's calls register, per the rules above."""
+        pending: dict[str, str] = {}
+        for member, desired in targets.items():
+            state = self.hass.states.get(member)
+            if state is None or state.state in ("unavailable", "unknown"):
+                continue  # dead or unknown light: skip silently
+            if state.state != desired:
+                pending[member] = desired
+        if not pending:
+            return
+
+        started = time.monotonic()
+        unconfirmed: list[str] = []
+        done = asyncio.Event()
+
+        def _evaluate(member: str) -> None:
+            """Resolve or drop one pending member from its live state."""
+            state = self.hass.states.get(member)
+            if state is None:
+                return
+            if state.state == pending[member]:
+                del pending[member]
+            elif state.state in ("unavailable", "unknown"):
+                unconfirmed.append(member)
+                del pending[member]
+            elif (
+                time.monotonic() - started
+                >= self._SETTLE_NONCOMPLIANCE_GRACE_SECONDS
+            ):
+                # Alive and still reporting the old state well after
+                # its command: it is not complying; stop waiting on it.
+                unconfirmed.append(member)
+                del pending[member]
+            if not pending:
+                done.set()
+
+        def _on_state_change(event: Event) -> None:
+            member = event.data.get("entity_id")
+            if member in pending:
+                _evaluate(member)
+
+        unsub = async_track_state_change_event(
+            self.hass, list(pending), _on_state_change
+        )
+        try:
+            # Close the check/register race: re-evaluate once now that
+            # the listener is attached.
+            for member in list(pending):
+                _evaluate(member)
+            if pending:
+                await asyncio.wait_for(
+                    done.wait(), timeout=self._SETTLE_BACKSTOP_SECONDS
+                )
+        except TimeoutError:
+            unconfirmed.extend(sorted(pending))
+            pending.clear()
+        finally:
+            unsub()
+        if unconfirmed:
+            _LOGGER.warning(
+                "Asymmetric group %s: could not confirm new state for %s "
+                "after a scope change; continuing without them",
+                self.entity_id or self.name,
+                ", ".join(sorted(unconfirmed)),
             )
 
     def snapshot_preset(self) -> dict:
@@ -323,9 +373,6 @@ class GroupRuntime:
 
     def unregister_entity_id(self) -> None:
         self._live = False
-        for unsub in self._recheck_unsubs:
-            unsub()
-        self._recheck_unsubs.clear()
         if self.entity_id is None:
             return
         by_entity = (
