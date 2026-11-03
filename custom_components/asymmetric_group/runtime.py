@@ -244,14 +244,16 @@ class GroupRuntime:
                 blocking=False,
             )
 
-    # Re-assertion delays (seconds). Entering a theme can make other
-    # integrations re-light a just-excluded light moments later —
-    # Adaptive Lighting, for one, turns its lights back on when its
-    # switches toggle during a theme change (observed live: relights
-    # immediately and again ~15s after the scope change). Delayed
-    # rechecks re-assert the scope for exactly the lights enforcement
-    # turned off; anything else is never touched.
-    _RECHECK_DELAYS = (8, 20, 50)
+    # Re-assertion delay (seconds). One short recheck covers generic
+    # turn-on races: another integration that was mid-apply when the
+    # scope changed — Adaptive Lighting re-lighting its lights as its
+    # switches toggle, for instance — acts within a few seconds, so a
+    # single recheck at 5s re-asserts the scope for exactly the lights
+    # enforcement turned off. Longer cycles belong to the environment
+    # (a theme controller with a settle delay, say) and are
+    # deliberately not chased here: after this one recheck, a light
+    # that comes on stays on.
+    _RECHECK_DELAYS = (5,)
 
     def _schedule_rechecks(self, removed: list[str]) -> None:
         members = list(removed)
