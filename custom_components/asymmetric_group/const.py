@@ -42,6 +42,8 @@ MEMBER_KEYS = (
 SERVICE_APPLY_PRESET = "apply_preset"
 SERVICE_SAVE_PRESET = "save_preset"
 SERVICE_DELETE_PRESET = "delete_preset"
+SERVICE_LIST_PRESETS = "list_presets"
+SERVICE_SET_MEMBERS = "set_members"
 
 ATTR_PRESET = "preset"
 ATTR_OVERWRITE = "overwrite"
