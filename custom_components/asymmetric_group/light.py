@@ -161,6 +161,20 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
         sets = self._runtime.effective_sets()
         return [m for m in sets["attributes"] if self._is_member_on(m)]
 
+    def _display_members(self) -> list[str]:
+        """Members whose attributes the group displays.
+
+        Normally the currently-on Attribute-scope members. When that
+        scope is dark but the group is on via another scope, fall back
+        to lit base members (core-group behaviour) so the reported
+        brightness/colour stay consistent with the reported
+        color_mode instead of going blank.
+        """
+        on_attr = self._on_attribute_members()
+        if on_attr:
+            return on_attr
+        return [m for m in self._runtime.base_members if self._is_member_on(m)]
+
     def _chosen_color_mode(self, on_members: list[str]) -> str | None:
         """Unanimous color_mode of the on members, else the first one's.
 
@@ -181,9 +195,21 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
     @property
     def color_mode(self) -> str | None:
         on_members = self._on_attribute_members()
-        if not on_members:
-            return None
-        return self._chosen_color_mode(on_members)
+        if on_members:
+            return self._chosen_color_mode(on_members)
+        # The group can be ON via its State scope while nobody in the
+        # Attribute scope is on (the scopes are independent). HA
+        # raises "does not report a color mode" and drops the state
+        # write if an ON light with supported color modes reports
+        # color_mode=None — which silently froze the group state at
+        # off. Fall back to the mode of any lit base member, then to
+        # the Attribute scope's (off) members, so a mode is reported
+        # whenever the members support one.
+        lit = [m for m in self._runtime.base_members if self._is_member_on(m)]
+        if lit:
+            return self._chosen_color_mode(lit)
+        sets = self._runtime.effective_sets()
+        return self._chosen_color_mode(sets["attributes"])
 
     @property
     def supported_color_modes(self) -> set[str]:
@@ -198,7 +224,7 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
     @property
     def brightness(self) -> int | None:
         values = []
-        for member in self._on_attribute_members():
+        for member in self._display_members():
             state = self._member_state(member)
             if state is not None and state.attributes.get("brightness") is not None:
                 values.append(state.attributes["brightness"])
@@ -207,7 +233,7 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
     def _average_attr(self, attr: str):
         """Mean of a numeric attribute over on attribute-scope members."""
         values = []
-        for member in self._on_attribute_members():
+        for member in self._display_members():
             state = self._member_state(member)
             if state is not None and state.attributes.get(attr) is not None:
                 values.append(state.attributes[attr])
@@ -216,7 +242,7 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
     def _average_tuple_attr(self, attr: str):
         """Per-component mean of a tuple attribute (rgb/hs/xy)."""
         tuples = []
-        for member in self._on_attribute_members():
+        for member in self._display_members():
             state = self._member_state(member)
             if state is not None and state.attributes.get(attr) is not None:
                 tuples.append(state.attributes[attr])
@@ -287,7 +313,7 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
 
     @property
     def effect(self) -> str | None:
-        for member in self._on_attribute_members():
+        for member in self._display_members():
             state = self._member_state(member)
             if state is not None and state.attributes.get(ATTR_EFFECT):
                 return state.attributes[ATTR_EFFECT]
