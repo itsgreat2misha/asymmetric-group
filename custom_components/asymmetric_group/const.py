@@ -16,18 +16,21 @@ CONF_ALL_ENTITIES = "all_entities"
 CONF_ASYMMETRIC_POWER = "asymmetric_power"
 CONF_ASYMMETRIC_ATTRIBUTES = "asymmetric_attributes"
 CONF_ASYMMETRIC_STATE = "asymmetric_state"
+CONF_ENFORCE_POWER_SCOPE = "enforce_power_scope"
 
 # Runtime toggle keys (engine level).
 TOGGLE_POWER = "power"
 TOGGLE_ATTRIBUTES = "attributes"
 TOGGLE_STATE = "state"
-TOGGLES = (TOGGLE_POWER, TOGGLE_ATTRIBUTES, TOGGLE_STATE)
+TOGGLE_ENFORCE = "enforce"
+TOGGLES = (TOGGLE_POWER, TOGGLE_ATTRIBUTES, TOGGLE_STATE, TOGGLE_ENFORCE)
 
 # Map runtime toggle key -> config/preset key.
 TOGGLE_TO_PRESET_KEY = {
     TOGGLE_POWER: CONF_ASYMMETRIC_POWER,
     TOGGLE_ATTRIBUTES: CONF_ASYMMETRIC_ATTRIBUTES,
     TOGGLE_STATE: CONF_ASYMMETRIC_STATE,
+    TOGGLE_ENFORCE: CONF_ENFORCE_POWER_SCOPE,
 }
 
 # Subgroup member-list keys, in config / preset / runtime dicts alike.
