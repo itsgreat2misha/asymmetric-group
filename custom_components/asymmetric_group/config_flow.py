@@ -3,8 +3,9 @@
 Creation is a helper-style flow:
   1. user       — name + base members (ALL lights involved in any way);
                   group entities are rejected as members (no nesting).
-  2. sets       — the three dimension toggles (their starting/default
-                  state) plus hide_members / all_entities.
+  2. sets       — the dimension toggles plus Enforce power scope
+                  (their starting/default state) plus hide_members /
+                  all_entities.
   3. power      — ONLY shown when Asymmetric power is on:
                   Power-ON and Power-OFF member selectors.
   4. attributes — ONLY shown when Asymmetric attributes is on.
