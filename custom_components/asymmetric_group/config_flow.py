@@ -44,6 +44,7 @@ from .const import (
     CONF_ASYMMETRIC_STATE,
     CONF_ATTRIBUTE_MEMBERS,
     CONF_BASE_MEMBERS,
+    CONF_ENFORCE_POWER_SCOPE,
     CONF_HIDE_MEMBERS,
     CONF_NAME,
     CONF_POWER_OFF_MEMBERS,
@@ -62,6 +63,7 @@ _TOGGLE_PRESET_KEYS = (
     CONF_ASYMMETRIC_POWER,
     CONF_ASYMMETRIC_ATTRIBUTES,
     CONF_ASYMMETRIC_STATE,
+    CONF_ENFORCE_POWER_SCOPE,
 )
 
 # Keys the options flow is allowed to write (name/base stay in data).
@@ -69,6 +71,7 @@ _OPTION_KEYS = (
     CONF_ASYMMETRIC_POWER,
     CONF_ASYMMETRIC_ATTRIBUTES,
     CONF_ASYMMETRIC_STATE,
+    CONF_ENFORCE_POWER_SCOPE,
     CONF_POWER_ON_MEMBERS,
     CONF_POWER_OFF_MEMBERS,
     CONF_ATTRIBUTE_MEMBERS,
@@ -93,7 +96,7 @@ def _find_group_members(hass: HomeAssistant, members: list[str]) -> list[str]:
 
 
 def _toggles_schema(defaults: dict) -> vol.Schema:
-    """Step 2 form: the three toggles + core-parity options only."""
+    """Step 2 form: the toggles + core-parity options only."""
     return vol.Schema(
         {
             vol.Required(
@@ -107,6 +110,10 @@ def _toggles_schema(defaults: dict) -> vol.Schema:
             vol.Required(
                 CONF_ASYMMETRIC_STATE,
                 default=bool(defaults.get(CONF_ASYMMETRIC_STATE, False)),
+            ): BooleanSelector(),
+            vol.Required(
+                CONF_ENFORCE_POWER_SCOPE,
+                default=bool(defaults.get(CONF_ENFORCE_POWER_SCOPE, False)),
             ): BooleanSelector(),
             vol.Required(
                 CONF_HIDE_MEMBERS,
