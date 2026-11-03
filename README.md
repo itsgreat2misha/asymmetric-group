@@ -58,7 +58,7 @@ Enforcement never fires on startup or restart — only on a live change — and 
 
 Everything about a group can be driven from automations and scripts:
 
-- **Flip a behaviour on or off** with the group's three switches, e.g. an "evening mode" automation turns on *Asymmetric power* and from then on the group turns on partially but always turns off fully.
+- **Flip a behaviour on or off** with the group's switches, e.g. an "evening mode" automation turns on *Asymmetric power* and from then on the group turns on partially but always turns off fully.
 - **Change sets and switches on the fly** with the `asymmetric_group.set_members` action. Only the fields you include are changed:
 
 ```yaml
