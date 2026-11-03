@@ -175,6 +175,48 @@
         }
       },
       "name": "Save preset"
+    },
+    "list_presets": {
+      "name": "List presets",
+      "description": "Return the full preset library (names and contents) as a service response. Use it in scripts and automations with a response variable."
+    },
+    "set_members": {
+      "name": "Set toggles and member sets",
+      "description": "Change a group's toggles and member sets directly. Only the fields you pass are changed; everything else is left as it is. Member lists are limited to the group's base members.",
+      "fields": {
+        "entity_id": {
+          "name": "Group",
+          "description": "The Asymmetric Group light entity."
+        },
+        "asymmetric_power": {
+          "name": "Asymmetric power",
+          "description": "Turn the power toggle on or off."
+        },
+        "power_on_members": {
+          "name": "Power-ON members",
+          "description": "Lights that turn on with the group while Asymmetric power is on."
+        },
+        "power_off_members": {
+          "name": "Power-OFF members",
+          "description": "Lights that turn off with the group while Asymmetric power is on."
+        },
+        "asymmetric_attributes": {
+          "name": "Asymmetric attributes",
+          "description": "Turn the attributes toggle on or off."
+        },
+        "attribute_members": {
+          "name": "Attribute members",
+          "description": "Lights that receive brightness and colour changes while Asymmetric attributes is on."
+        },
+        "asymmetric_state": {
+          "name": "Asymmetric state",
+          "description": "Turn the state toggle on or off."
+        },
+        "state_members": {
+          "name": "State members",
+          "description": "Lights that decide the group's on/off state while Asymmetric state is on."
+        }
+      }
     }
   }
 }
