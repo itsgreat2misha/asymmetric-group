@@ -23,13 +23,13 @@ Requires Home Assistant 2025.1.0 or newer.
    - **Power** — separate light sets for turning on and turning off.
    - **Attributes** — the lights that receive brightness and colour changes.
    - **State** — the lights that decide whether the group counts as "on", and whose brightness/colour the group reports.
-3. Optionally enable **Hide members** (hide the individual lights, like a regular group) and **All entities** (the group is only "on" when *all* of its state lights are on).
+3. Optionally enable **Hide members** (hide the individual lights, like a regular group), **All entities** (the group is only "on" when *all* of its state lights are on), and **Enforce power scope** (when the Power-ON set changes, reconcile lights that are already on — see *Enforce power scope* below).
 
 You can change all of this later under the group's **Configure** button. Settings for behaviours you didn't enable simply use all the base lights.
 
 ## How it works
 
-Each behaviour has its own switch on the group's device page — **Asymmetric power**, **Asymmetric attributes**, and **Asymmetric state**. While a switch is off, that behaviour uses all the base lights, exactly like a regular group. Turn it on, and that behaviour uses its own smaller set instead.
+Each behaviour has its own switch on the group's device page — **Asymmetric power**, **Asymmetric attributes**, and **Asymmetric state** — plus a fourth, **Enforce power scope**, described below. While a switch is off, that behaviour uses all the base lights, exactly like a regular group. Turn it on, and that behaviour uses its own smaller set instead.
 
 | Behaviour | Switch on | Switch off |
 |---|---|---|
@@ -43,6 +43,16 @@ Two guarantees hold at all times:
 - **The group's light list always shows all base lights** (in its `entity_id` attribute), so `expand()` and templates keep working as they do with a regular group. Extra attributes (`effective_power_on_members`, `effective_attribute_members`, and so on) show which sets are currently in effect.
 
 Group lights can't be members of an Asymmetric Group — add the individual lights instead.
+
+### Enforce power scope
+
+A fourth switch, **Enforce power scope** (off by default), reconciles lights that are already on when the effective Power-ON set changes — by flipping the Asymmetric power switch, editing the sets, applying a preset, or calling `set_members`:
+
+- Lights that **fell out** of the Power-ON set and are on are turned off.
+- Lights that **entered** the set are turned on, but only if the group was actually lit through its old set (at least one old-set light on). If the group was dark, the new set is only staged — nothing turns on.
+- A light that is on but was in neither the old nor the new set (turned on by hand while excluded) is left alone, and doesn't count as "the group was lit".
+
+Enforcement never fires on startup or restart — only on a live change — and flipping the Enforce switch itself changes nothing until the next scope change. A typical use: a lighting theme narrows the group for a "Dim" scene; with enforcement on, entering the scene also switches off the room's other lights that happened to be on, instead of only filtering the next turn-on.
 
 ## Controlling groups from automations
 
@@ -83,20 +93,30 @@ A preset only needs to contain the settings it should change. Settings it doesn'
 
 Light sets in a preset are matched against each group's own base lights when applied, so a preset can never point a group at lights it doesn't have. After a preset is applied, the group's `last_applied_preset` attribute shows its name (just a label — editing the group afterwards doesn't remove it).
 
-## Example
+## Example: one bedroom, two personalities
 
-A bedroom has four lights. Create an Asymmetric Group "Bedroom lights" with all four as base members:
+A bedroom has four recessed lights, `light.bedroom_1` … `light.bedroom_4`. Light 3 is the one whose position gives a soft, low glow — enough to move around at night without waking anyone. During the day the room should behave like any normal room; at night, "the bedroom lights" should mean light 3 only.
 
-- Power-ON lights: `light.bedroom_3` only; Power-OFF lights: all four.
-- Attribute and State lights: `light.bedroom_3`.
+Create an Asymmetric Group **Bedroom lights** with all four lights as base members:
 
-An evening automation turns on the group's three Asymmetric switches. Now:
+- **Power-ON set:** `light.bedroom_3` · **Power-OFF set:** all four
+- **Asymmetric attributes / state:** off (they use all base lights)
+- **Enforce power scope:** on
 
-- "Turn on the bedroom lights" lights only `light.bedroom_3`.
-- Someone turns on `light.bedroom_2` by hand. It doesn't change the group's reported state or brightness — those come from `light.bedroom_3` — and a brightness change still goes to `light.bedroom_3` only.
-- "Turn off the bedroom lights" switches **all four** off, including the hand-lit lamp.
+A lighting automation flips the group's **Asymmetric power** switch: off for the daytime/evening themes, on for the night ("Dim") theme. Adaptive Lighting is configured with the four individual lights, so it adapts each light that is on, whichever mode the group is in.
 
-When the automation turns the switches back off, the group is an ordinary group again.
+What happens, switch by switch:
+
+- **Daytime — Asymmetric power off.** The group is an ordinary group. Turning it on lights all four; Adaptive Lighting adapts all four. Nothing about the group is special.
+- **The night theme engages — Asymmetric power flips on.** The Power-ON set shrinks to light 3. Because **Enforce power scope** is on, the change is reconciled immediately: if all four lights were on, 1, 2 and 4 turn off and light 3 stays — the room drops to its night light instead of waiting for the next turn-on to be filtered. If the room was dark, nothing turns on; the narrower set is simply staged for the next command.
+- **"Turn on the bedroom lights" at night — Asymmetric power's job.** Only light 3 lights. This is the core trick: the group is filtered at the group itself, so it works identically from voice, a dashboard, an automation, or a wall switch that targets the group.
+- **Someone turns light 2 on by hand.** It comes on (direct control of a light is never blocked) and Adaptive Lighting adapts it. But **"turn off the bedroom lights" still switches all four off**, including the hand-lit light 2 — the Power-OFF set is the full base set, so a group off always sweeps the whole room.
+- **Morning — Asymmetric power flips back off.** The set widens to all four again. With enforcement on, if light 3 is still lit the other three come on with it — the room comes up as a whole; if the room is dark, nothing happens and the group is a plain group again.
+
+### Where the other two switches earn their keep
+
+- **Asymmetric attributes** — a bathroom group of ceiling lights plus a vanity light. The vanity is set bright for shaving and shouldn't be dragged along when a scene dims the group for a bath. Put the ceiling lights in the Attribute set and leave the vanity out: brightness and colour changes to the group adjust the ceiling lights (the ones that are on), while the vanity keeps its level. It still turns on and off with the group — only attribute changes skip it.
+- **Asymmetric state** — a hallway group that also includes the hall closet light, so "hallway off" sweeps the closet too. The closet shouldn't make the hallway read as *on* on a dashboard just because someone left it lit. Put only the ceiling lights in the State set: the group's on/off state and reported brightness come from them, and the closet light is invisible to the group's state while remaining a full member for power.
 
 ## Good to know
 
