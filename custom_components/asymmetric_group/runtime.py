@@ -247,11 +247,11 @@ class GroupRuntime:
     # Re-assertion delays (seconds). Entering a theme can make other
     # integrations re-light a just-excluded light moments later —
     # Adaptive Lighting, for one, turns its lights back on when its
-    # sleep-mode switch toggles during a theme change (observed live:
-    # relights ~2s and ~17s after the scope change). Two delayed
+    # switches toggle during a theme change (observed live: relights
+    # immediately and again ~15s after the scope change). Delayed
     # rechecks re-assert the scope for exactly the lights enforcement
     # turned off; anything else is never touched.
-    _RECHECK_DELAYS = (20, 50)
+    _RECHECK_DELAYS = (8, 20, 50)
 
     def _schedule_rechecks(self, removed: list[str]) -> None:
         members = list(removed)
