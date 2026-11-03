@@ -16,6 +16,7 @@ import copy
 from collections.abc import Callable
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 from . import engine
@@ -68,6 +69,8 @@ class GroupRuntime:
         # changes made after setup — never during load/restore — so a
         # restart can never strike or kill lights on its own.
         self._live = False
+        # Cancel callbacks for scheduled enforcement re-assertions.
+        self._recheck_unsubs: list[Callable[[], None]] = []
 
         # --- seed from config -------------------------------------------
         self.toggles: dict[str, bool] = {
@@ -232,11 +235,58 @@ class GroupRuntime:
                 {"entity_id": to_turn_off},
                 blocking=False,
             )
+            self._schedule_rechecks(to_turn_off)
         if to_turn_on:
             await self.hass.services.async_call(
                 "light",
                 "turn_on",
                 {"entity_id": to_turn_on},
+                blocking=False,
+            )
+
+    # Re-assertion delays (seconds). Entering a theme can make other
+    # integrations re-light a just-excluded light moments later —
+    # Adaptive Lighting, for one, turns its lights back on when its
+    # sleep-mode switch toggles during a theme change (observed live:
+    # relights ~2s and ~17s after the scope change). Two delayed
+    # rechecks re-assert the scope for exactly the lights enforcement
+    # turned off; anything else is never touched.
+    _RECHECK_DELAYS = (20, 50)
+
+    def _schedule_rechecks(self, removed: list[str]) -> None:
+        members = list(removed)
+
+        async def _recheck(_now, _members=members) -> None:
+            await self._async_enforcement_recheck(_members)
+
+        for delay in self._RECHECK_DELAYS:
+            self._recheck_unsubs.append(
+                async_call_later(self.hass, delay, _recheck)
+            )
+
+    async def _async_enforcement_recheck(self, members: list[str]) -> None:
+        """Re-assert the scope for lights enforcement removed earlier.
+
+        Evaluated against the *current* scope: if the scope widened
+        again in the meantime (theme changed back), the members are in
+        scope and nothing happens. Only a member that is on while
+        outside the current effective power-ON set is turned off.
+        """
+        if not self._live or not self.toggles.get(TOGGLE_ENFORCE):
+            return
+        effective = set(self.effective_sets()["power_on"])
+        targets = []
+        for member in members:
+            if member in effective:
+                continue
+            state = self.hass.states.get(member)
+            if state is not None and state.state == "on":
+                targets.append(member)
+        if targets:
+            await self.hass.services.async_call(
+                "light",
+                "turn_off",
+                {"entity_id": targets},
                 blocking=False,
             )
 
@@ -271,6 +321,9 @@ class GroupRuntime:
 
     def unregister_entity_id(self) -> None:
         self._live = False
+        for unsub in self._recheck_unsubs:
+            unsub()
+        self._recheck_unsubs.clear()
         if self.entity_id is None:
             return
         by_entity = (
