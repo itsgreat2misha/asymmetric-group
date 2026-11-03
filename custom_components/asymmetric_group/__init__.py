@@ -11,18 +11,28 @@ import logging
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
     ATTR_OVERWRITE,
     ATTR_PRESET,
+    CONF_ASYMMETRIC_ATTRIBUTES,
+    CONF_ASYMMETRIC_POWER,
+    CONF_ASYMMETRIC_STATE,
+    CONF_ATTRIBUTE_MEMBERS,
+    CONF_POWER_OFF_MEMBERS,
+    CONF_POWER_ON_MEMBERS,
+    CONF_STATE_MEMBERS,
     DOMAIN,
     PLATFORMS,
     SERVICE_APPLY_PRESET,
     SERVICE_DELETE_PRESET,
+    SERVICE_LIST_PRESETS,
     SERVICE_SAVE_PRESET,
+    SERVICE_SET_MEMBERS,
 )
 from .presets import async_get_preset_store
 from .runtime import GroupRuntime
@@ -82,6 +92,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         store = await async_get_preset_store(hass)
         await store.async_delete_preset(call.data[ATTR_PRESET])
 
+    async def _handle_list_presets(call: ServiceCall) -> ServiceResponse:
+        store = await async_get_preset_store(hass)
+        return {"presets": await store.async_load()}
+
+    async def _handle_set_members(call: ServiceCall) -> None:
+        runtime = _runtime_for_entity(hass, call.data["entity_id"])
+        changes = {k: v for k, v in call.data.items() if k != "entity_id"}
+        if not changes:
+            raise ServiceValidationError(
+                "Nothing to change: pass at least one toggle or member set"
+            )
+        await runtime.async_apply_sparse(changes)
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_APPLY_PRESET,
@@ -110,6 +133,30 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_DELETE_PRESET,
         _handle_delete_preset,
         schema=vol.Schema({vol.Required(ATTR_PRESET): str}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LIST_PRESETS,
+        _handle_list_presets,
+        schema=vol.Schema({}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_MEMBERS,
+        _handle_set_members,
+        schema=vol.Schema(
+            {
+                vol.Required("entity_id"): str,
+                vol.Optional(CONF_ASYMMETRIC_POWER): cv.boolean,
+                vol.Optional(CONF_ASYMMETRIC_ATTRIBUTES): cv.boolean,
+                vol.Optional(CONF_ASYMMETRIC_STATE): cv.boolean,
+                vol.Optional(CONF_POWER_ON_MEMBERS): cv.entity_ids,
+                vol.Optional(CONF_POWER_OFF_MEMBERS): cv.entity_ids,
+                vol.Optional(CONF_ATTRIBUTE_MEMBERS): cv.entity_ids,
+                vol.Optional(CONF_STATE_MEMBERS): cv.entity_ids,
+            }
+        ),
     )
     data[_DATA_SERVICES_REGISTERED] = True
     return True
