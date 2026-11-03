@@ -155,6 +155,13 @@ class GroupRuntime:
         await self.async_save()
         self._notify()
 
+    def _apply_sparse(self, data: dict) -> None:
+        new_state = engine.apply_sparse_preset(
+            self._state_dict(), data, self.base_members
+        )
+        self.toggles = {k: bool(v) for k, v in new_state["toggles"].items()}
+        self.subgroups = new_state["subgroups"]
+
     async def async_apply_preset(self, preset: dict, preset_name: str) -> None:
         """Apply a sparse preset and record it as last applied.
 
@@ -162,12 +169,19 @@ class GroupRuntime:
         deliberately no drift/Custom tracking: later manual changes do
         not clear the label.
         """
-        new_state = engine.apply_sparse_preset(
-            self._state_dict(), preset, self.base_members
-        )
-        self.toggles = {k: bool(v) for k, v in new_state["toggles"].items()}
-        self.subgroups = new_state["subgroups"]
+        self._apply_sparse(preset)
         self.last_applied_preset = preset_name
+        await self.async_save()
+        self._notify()
+
+    async def async_apply_sparse(self, data: dict) -> None:
+        """Apply a sparse settings dict (toggles and/or member sets).
+
+        Used by the set_members service: exactly the keys present in
+        ``data`` change; the last_applied_preset label is untouched
+        because this was a direct edit, not a preset application.
+        """
+        self._apply_sparse(data)
         await self.async_save()
         self._notify()
 
