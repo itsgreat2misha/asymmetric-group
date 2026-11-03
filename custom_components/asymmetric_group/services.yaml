@@ -31,3 +31,47 @@ delete_preset:
       required: true
       selector:
         text:
+list_presets:
+set_members:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: light
+    asymmetric_power:
+      required: false
+      selector:
+        boolean:
+    power_on_members:
+      required: false
+      selector:
+        entity:
+          domain: light
+          multiple: true
+    power_off_members:
+      required: false
+      selector:
+        entity:
+          domain: light
+          multiple: true
+    asymmetric_attributes:
+      required: false
+      selector:
+        boolean:
+    attribute_members:
+      required: false
+      selector:
+        entity:
+          domain: light
+          multiple: true
+    asymmetric_state:
+      required: false
+      selector:
+        boolean:
+    state_members:
+      required: false
+      selector:
+        entity:
+          domain: light
+          multiple: true
