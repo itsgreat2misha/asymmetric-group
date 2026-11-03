@@ -25,6 +25,7 @@
           "asymmetric_attributes": "Asymmetric attributes (default)",
           "asymmetric_power": "Asymmetric power (default)",
           "asymmetric_state": "Asymmetric state (default)",
+          "enforce_power_scope": "Enforce power scope (default)",
           "hide_members": "Hide members"
         },
         "description": "The toggles set the starting (default) state of the group's companion switches. Each enabled dimension gets its own member-set step next; disabled dimensions use the full base set and show no extra fields.",
@@ -57,6 +58,9 @@
       },
       "asymmetric_state": {
         "name": "Asymmetric state"
+      },
+      "enforce_power_scope": {
+        "name": "Enforce power scope"
       }
     }
   },
@@ -78,6 +82,7 @@
           "asymmetric_attributes": "Asymmetric attributes (default)",
           "asymmetric_power": "Asymmetric power (default)",
           "asymmetric_state": "Asymmetric state (default)",
+          "enforce_power_scope": "Enforce power scope (default)",
           "hide_members": "Hide members"
         },
         "description": "Saving re-seeds the group's runtime state from these values. Each enabled dimension gets its own member-set step next.",
@@ -110,6 +115,7 @@
           "asymmetric_attributes": "Asymmetric attributes",
           "asymmetric_power": "Asymmetric power",
           "asymmetric_state": "Asymmetric state",
+          "enforce_power_scope": "Enforce power scope",
           "attribute_members": "Attribute members",
           "attribute_members_include": "Include attribute members",
           "delete_preset": "Delete this preset",
@@ -215,6 +221,10 @@
         "state_members": {
           "name": "State members",
           "description": "Lights that decide the group's on/off state while Asymmetric state is on."
+        },
+        "enforce_power_scope": {
+          "name": "Enforce power scope",
+          "description": "Turn the scope-enforcement toggle on or off."
         }
       }
     }
