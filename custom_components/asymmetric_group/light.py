@@ -179,13 +179,19 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
         """Unanimous color_mode of the on members, else the first one's.
 
         Simplification (vs core's mode negotiation): we just describe
-        the lights attributes will actually change.
+        the lights attributes will actually change. Member modes that
+        the group itself does not support (an ONOFF member in a mixed
+        group, whose ONOFF was dropped from supported_color_modes)
+        are skipped so the reported mode is always a supported one.
         """
+        supported = self.supported_color_modes
         modes = []
         for member in on_members:
             state = self._member_state(member)
             if state is not None and state.attributes.get("color_mode"):
-                modes.append(state.attributes["color_mode"])
+                mode = state.attributes["color_mode"]
+                if mode in supported:
+                    modes.append(mode)
         if not modes:
             return None
         if all(mode == modes[0] for mode in modes):
@@ -196,7 +202,9 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
     def color_mode(self) -> str | None:
         on_members = self._on_attribute_members()
         if on_members:
-            return self._chosen_color_mode(on_members)
+            mode = self._chosen_color_mode(on_members)
+            if mode is not None:
+                return mode
         # The group can be ON via its State scope while nobody in the
         # Attribute scope is on (the scopes are independent). HA
         # raises "does not report a color mode" and drops the state
@@ -207,9 +215,17 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
         # whenever the members support one.
         lit = [m for m in self._runtime.base_members if self._is_member_on(m)]
         if lit:
-            return self._chosen_color_mode(lit)
+            mode = self._chosen_color_mode(lit)
+            if mode is not None:
+                return mode
         sets = self._runtime.effective_sets()
-        return self._chosen_color_mode(sets["attributes"])
+        mode = self._chosen_color_mode(sets["attributes"])
+        if mode is not None:
+            return mode
+        # Last resort (e.g. only an ONOFF member is lit in a mixed
+        # group): report any supported mode so the mode is valid.
+        supported = self.supported_color_modes
+        return sorted(supported)[0] if supported else None
 
     @property
     def supported_color_modes(self) -> set[str]:
@@ -219,7 +235,15 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
             state = self._member_state(member)
             if state is not None:
                 modes.update(state.attributes.get("supported_color_modes") or [])
-        return modes or {ColorMode.ONOFF}
+        if not modes:
+            return {ColorMode.ONOFF}
+        # HA forbids ONOFF alongside any other mode ("sets invalid
+        # supported color modes" — the entity is refused entirely).
+        # A mixed group (e.g. an on/off closet light next to dimmable
+        # colour lights) must drop ONOFF, like core groups do.
+        if len(modes) > 1:
+            modes.discard(ColorMode.ONOFF)
+        return modes
 
     @property
     def brightness(self) -> int | None:
