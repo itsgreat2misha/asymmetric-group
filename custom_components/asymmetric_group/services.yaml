@@ -1,0 +1,33 @@
+apply_preset:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: light
+    preset:
+      required: true
+      selector:
+        text:
+save_preset:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: light
+    preset:
+      required: true
+      selector:
+        text:
+    overwrite:
+      required: false
+      default: false
+      selector:
+        boolean:
+delete_preset:
+  fields:
+    preset:
+      required: true
+      selector:
+        text:
