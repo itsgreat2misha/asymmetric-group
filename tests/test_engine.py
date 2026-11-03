@@ -212,6 +212,60 @@ class ApplySparsePresetTest(unittest.TestCase):
         self.assertIsNone(new["last_applied_preset"])
 
 
+class PlanEnforcementTest(unittest.TestCase):
+    OLD = ["light.a", "light.b", "light.c", "light.d"]
+    NEW = ["light.c"]
+
+    def test_narrow_turns_off_removed_that_are_on(self):
+        off, on = engine.plan_enforcement(self.OLD, self.NEW, {"light.a", "light.c"})
+        self.assertEqual(off, ["light.a"])
+        self.assertEqual(on, [])
+
+    def test_narrow_dark_changes_nothing(self):
+        off, on = engine.plan_enforcement(self.OLD, self.NEW, set())
+        self.assertEqual((off, on), ([], []))
+
+    def test_widen_turns_on_added_when_old_scope_lit(self):
+        off, on = engine.plan_enforcement(self.NEW, self.OLD, {"light.c"})
+        self.assertEqual(off, [])
+        self.assertEqual(on, ["light.a", "light.b", "light.d"])
+
+    def test_widen_dark_stages_only(self):
+        off, on = engine.plan_enforcement(self.NEW, self.OLD, set())
+        self.assertEqual((off, on), ([], []))
+
+    def test_manual_excluded_light_does_not_count_as_lit(self):
+        # light.x is on but in neither scope: widening must not strike
+        # the added members, and the manual light is left alone.
+        off, on = engine.plan_enforcement(self.NEW, self.OLD, {"light.x"})
+        self.assertEqual((off, on), ([], []))
+
+    def test_manual_excluded_light_removed_by_narrowing(self):
+        # Widen first (scope = all, light.b manually on), then narrow:
+        # b fell out of the set while on -> turned off.
+        off, on = engine.plan_enforcement(self.OLD, self.NEW, {"light.b"})
+        self.assertEqual(off, ["light.b"])
+        self.assertEqual(on, [])
+
+    def test_swap_off_then_on(self):
+        off, on = engine.plan_enforcement(
+            ["light.a"], ["light.b"], {"light.a"}
+        )
+        self.assertEqual(off, ["light.a"])
+        self.assertEqual(on, ["light.b"])
+
+    def test_added_already_on_not_retriggered(self):
+        off, on = engine.plan_enforcement(self.NEW, self.OLD, {"light.c", "light.a"})
+        self.assertEqual(on, ["light.b", "light.d"])
+
+    def test_enforce_toggle_in_sparse_preset(self):
+        state = runtime_state()
+        new = engine.apply_sparse_preset(state, {"enforce_power_scope": True}, BASE)
+        self.assertTrue(new["toggles"]["enforce"])
+        new = engine.apply_sparse_preset(new, {"enforce_power_scope": False}, BASE)
+        self.assertFalse(new["toggles"]["enforce"])
+
+
 class MeanHelpersTest(unittest.TestCase):
     def test_mean_int(self):
         self.assertEqual(engine.mean_int([100, 101]), 100)
