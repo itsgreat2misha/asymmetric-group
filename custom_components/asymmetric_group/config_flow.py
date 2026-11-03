@@ -1,16 +1,24 @@
 """Config and options flow for Asymmetric Group.
 
-Creation is a helper-style two-step flow:
-  1. user  — name + base members (ALL lights involved in any way);
-             group entities are rejected as members (no nesting in v1).
-  2. sets  — default values for the three runtime toggles, the four
-             subgroup member lists (prefilled with base), and the
-             core-parity options hide_members / all_entities.
+Creation is a helper-style flow:
+  1. user       — name + base members (ALL lights involved in any way);
+                  group entities are rejected as members (no nesting).
+  2. sets       — the three dimension toggles (their starting/default
+                  state) plus hide_members / all_entities.
+  3. power      — ONLY shown when Asymmetric power is on:
+                  Power-ON and Power-OFF member selectors.
+  4. attributes — ONLY shown when Asymmetric attributes is on.
+  5. state      — ONLY shown when Asymmetric state is on.
 
-The options flow offers a menu:
-  - "members": the same sets form; saving also clears the per-entry
-    runtime store so runtime state re-seeds from the new config.
-  - "presets": a central editor for the global preset library.
+Subgroup selectors for a dimension are never shown while that
+dimension is off. A dimension that is off behaves exactly like a core
+group (its set resolves to base), and if it is switched on later from
+its companion switch before being configured here, its subgroup
+defaults to the full base set.
+
+The options flow mirrors this: "members" runs the same conditional
+chain (step ids members / members_power / members_attributes /
+members_state), and "presets" opens the global preset library editor.
 """
 
 from __future__ import annotations
@@ -56,6 +64,19 @@ _TOGGLE_PRESET_KEYS = (
     CONF_ASYMMETRIC_STATE,
 )
 
+# Keys the options flow is allowed to write (name/base stay in data).
+_OPTION_KEYS = (
+    CONF_ASYMMETRIC_POWER,
+    CONF_ASYMMETRIC_ATTRIBUTES,
+    CONF_ASYMMETRIC_STATE,
+    CONF_POWER_ON_MEMBERS,
+    CONF_POWER_OFF_MEMBERS,
+    CONF_ATTRIBUTE_MEMBERS,
+    CONF_STATE_MEMBERS,
+    CONF_HIDE_MEMBERS,
+    CONF_ALL_ENTITIES,
+)
+
 
 def _light_selector() -> EntitySelector:
     return EntitySelector(EntitySelectorConfig(domain="light", multiple=True))
@@ -71,9 +92,8 @@ def _find_group_members(hass: HomeAssistant, members: list[str]) -> list[str]:
     return groups
 
 
-def _sets_schema(defaults: dict) -> vol.Schema:
-    """Schema for the subgroup/options form, prefilled from defaults."""
-    base = list(defaults.get(CONF_BASE_MEMBERS) or [])
+def _toggles_schema(defaults: dict) -> vol.Schema:
+    """Step 2 form: the three toggles + core-parity options only."""
     return vol.Schema(
         {
             vol.Required(
@@ -89,22 +109,6 @@ def _sets_schema(defaults: dict) -> vol.Schema:
                 default=bool(defaults.get(CONF_ASYMMETRIC_STATE, False)),
             ): BooleanSelector(),
             vol.Required(
-                CONF_POWER_ON_MEMBERS,
-                default=list(defaults.get(CONF_POWER_ON_MEMBERS) or base),
-            ): _light_selector(),
-            vol.Required(
-                CONF_POWER_OFF_MEMBERS,
-                default=list(defaults.get(CONF_POWER_OFF_MEMBERS) or base),
-            ): _light_selector(),
-            vol.Required(
-                CONF_ATTRIBUTE_MEMBERS,
-                default=list(defaults.get(CONF_ATTRIBUTE_MEMBERS) or base),
-            ): _light_selector(),
-            vol.Required(
-                CONF_STATE_MEMBERS,
-                default=list(defaults.get(CONF_STATE_MEMBERS) or base),
-            ): _light_selector(),
-            vol.Required(
                 CONF_HIDE_MEMBERS,
                 default=bool(defaults.get(CONF_HIDE_MEMBERS, False)),
             ): BooleanSelector(),
@@ -114,6 +118,61 @@ def _sets_schema(defaults: dict) -> vol.Schema:
             ): BooleanSelector(),
         }
     )
+
+
+def _power_schema(defaults: dict) -> vol.Schema:
+    base = list(defaults.get(CONF_BASE_MEMBERS) or [])
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_POWER_ON_MEMBERS,
+                default=list(defaults.get(CONF_POWER_ON_MEMBERS) or base),
+            ): _light_selector(),
+            vol.Required(
+                CONF_POWER_OFF_MEMBERS,
+                default=list(defaults.get(CONF_POWER_OFF_MEMBERS) or base),
+            ): _light_selector(),
+        }
+    )
+
+
+def _single_member_schema(key: str, defaults: dict) -> vol.Schema:
+    base = list(defaults.get(CONF_BASE_MEMBERS) or [])
+    return vol.Schema(
+        {
+            vol.Required(
+                key, default=list(defaults.get(key) or base)
+            ): _light_selector(),
+        }
+    )
+
+
+class _SetsChain:
+    """Shared conditional-subgroup routing for both flows.
+
+    Subclasses set ``self._working`` (the config being assembled) and
+    implement ``_finish_sets`` plus the four step methods' form
+    rendering via the helpers below. The chain order is always
+    power -> attributes -> state; a dimension whose toggle is off is
+    skipped entirely, leaving its subgroup at its current/default
+    value.
+    """
+
+    _working: dict
+
+    def _next_after(self, dimension: str) -> str | None:
+        """Next dimension step needed after ``dimension`` (or None)."""
+        order = ["power", "attributes", "state"]
+        toggles = {
+            "power": CONF_ASYMMETRIC_POWER,
+            "attributes": CONF_ASYMMETRIC_ATTRIBUTES,
+            "state": CONF_ASYMMETRIC_STATE,
+        }
+        start = order.index(dimension) + 1 if dimension in order else 0
+        for nxt in order[start:]:
+            if self._working.get(toggles[nxt]):
+                return nxt
+        return None
 
 
 class AsymmetricGroupConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -126,8 +185,9 @@ class AsymmetricGroupConfigFlow(ConfigFlow, domain=DOMAIN):
         return AsymmetricGroupOptionsFlow(config_entry)
 
     def __init__(self) -> None:
-        self._user_data: dict = {}
+        self._working: dict = {}
 
+    # ------------------------------------------------------------------
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -137,9 +197,15 @@ class AsymmetricGroupConfigFlow(ConfigFlow, domain=DOMAIN):
                 # semantics under asymmetric sets are undefined.
                 errors[CONF_BASE_MEMBERS] = "group_member_not_allowed"
             else:
-                self._user_data = {
+                self._working = {
                     CONF_NAME: user_input[CONF_NAME],
                     CONF_BASE_MEMBERS: base_members,
+                    # Subgroups start at base; the conditional steps
+                    # below narrow them only for enabled dimensions.
+                    CONF_POWER_ON_MEMBERS: list(base_members),
+                    CONF_POWER_OFF_MEMBERS: list(base_members),
+                    CONF_ATTRIBUTE_MEMBERS: list(base_members),
+                    CONF_STATE_MEMBERS: list(base_members),
                 }
                 return await self.async_step_sets()
         return self.async_show_form(
@@ -155,22 +221,69 @@ class AsymmetricGroupConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_sets(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            data = {**self._user_data, **user_input}
-            return self.async_create_entry(title=data[CONF_NAME], data=data)
+            self._working.update(user_input)
+            return await self._route_next("start")
         return self.async_show_form(
             step_id="sets",
-            data_schema=_sets_schema(self._user_data),
+            data_schema=_toggles_schema(self._working),
+        )
+
+    async def async_step_power(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            self._working.update(user_input)
+            return await self._route_next("power")
+        return self.async_show_form(
+            step_id="power",
+            data_schema=_power_schema(self._working),
+        )
+
+    async def async_step_attributes(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            self._working.update(user_input)
+            return await self._route_next("attributes")
+        return self.async_show_form(
+            step_id="attributes",
+            data_schema=_single_member_schema(CONF_ATTRIBUTE_MEMBERS, self._working),
+        )
+
+    async def async_step_state(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            self._working.update(user_input)
+            return self.async_create_entry(
+                title=self._working[CONF_NAME], data=self._working
+            )
+        return self.async_show_form(
+            step_id="state",
+            data_schema=_single_member_schema(CONF_STATE_MEMBERS, self._working),
+        )
+
+    async def _route_next(self, after: str) -> ConfigFlowResult:
+        chain = _SetsChain()
+        chain._working = self._working
+        nxt = chain._next_after(after if after != "start" else "")
+        # _next_after("") starts the scan at "power".
+        if nxt == "power":
+            return await self.async_step_power()
+        if nxt == "attributes":
+            return await self.async_step_attributes()
+        if nxt == "state":
+            return await self.async_step_state()
+        return self.async_create_entry(
+            title=self._working[CONF_NAME], data=self._working
         )
 
 
 class AsymmetricGroupOptionsFlow(OptionsFlow):
-    """Options: member sets + the global preset editor."""
+    """Options: member sets (conditional chain) + preset editor."""
 
     def __init__(self, config_entry) -> None:
         # TODO(live-verify): current HA manages OptionsFlow.config_entry
         # itself; storing the entry here is the long-standing pattern
         # and harmless, but confirm no deprecation on the target version.
         self._entry = config_entry
+        self._working: dict = {}
         self._preset_name: str | None = None
         self._preset_is_new = False
 
@@ -186,24 +299,79 @@ class AsymmetricGroupOptionsFlow(OptionsFlow):
         )
 
     # ------------------------------------------------------------------
-    # Members
+    # Members: same conditional chain as the config flow.
     async def async_step_members(self, user_input: dict | None = None) -> ConfigFlowResult:
         entry = self._config_entry
-        merged = {**entry.data, **entry.options}
-        if user_input is not None:
-            # Options edits re-seed runtime state: clear the per-entry
-            # runtime store so stored toggles/subgroups don't shadow
-            # the new config after the reload triggered by saving.
-            store = Store(
-                self.hass, ENTRY_STORE_VERSION, entry_store_key(entry.entry_id)
+        if user_input is None:
+            merged = {**entry.data, **entry.options}
+            self._working = {key: merged.get(key) for key in _OPTION_KEYS}
+            self._working[CONF_BASE_MEMBERS] = list(
+                merged.get(CONF_BASE_MEMBERS) or []
             )
-            # TODO(live-verify): Store.async_remove with no existing file.
-            await store.async_remove()
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_show_form(
+                step_id="members",
+                data_schema=_toggles_schema(self._working),
+            )
+        self._working.update(user_input)
+        return await self._route_next("")
+
+    async def async_step_members_power(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            self._working.update(user_input)
+            return await self._route_next("power")
         return self.async_show_form(
-            step_id="members",
-            data_schema=_sets_schema(merged),
+            step_id="members_power",
+            data_schema=_power_schema(self._working),
         )
+
+    async def async_step_members_attributes(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            self._working.update(user_input)
+            return await self._route_next("attributes")
+        return self.async_show_form(
+            step_id="members_attributes",
+            data_schema=_single_member_schema(CONF_ATTRIBUTE_MEMBERS, self._working),
+        )
+
+    async def async_step_members_state(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            self._working.update(user_input)
+            return await self._finish_members()
+        return self.async_show_form(
+            step_id="members_state",
+            data_schema=_single_member_schema(CONF_STATE_MEMBERS, self._working),
+        )
+
+    async def _route_next(self, after: str) -> ConfigFlowResult:
+        chain = _SetsChain()
+        chain._working = self._working
+        nxt = chain._next_after(after)
+        if nxt == "power":
+            return await self.async_step_members_power()
+        if nxt == "attributes":
+            return await self.async_step_members_attributes()
+        if nxt == "state":
+            return await self.async_step_members_state()
+        return await self._finish_members()
+
+    async def _finish_members(self) -> ConfigFlowResult:
+        entry = self._config_entry
+        # Options edits re-seed runtime state: clear the per-entry
+        # runtime store so stored toggles/subgroups don't shadow
+        # the new config after the reload triggered by saving.
+        store = Store(
+            self.hass, ENTRY_STORE_VERSION, entry_store_key(entry.entry_id)
+        )
+        # TODO(live-verify): Store.async_remove with no existing file.
+        await store.async_remove()
+        payload = {key: self._working.get(key) for key in _OPTION_KEYS}
+        return self.async_create_entry(title="", data=payload)
 
     # ------------------------------------------------------------------
     # Presets
@@ -290,4 +458,3 @@ class AsymmetricGroupOptionsFlow(OptionsFlow):
             data_schema=self._preset_edit_schema(existing),
             errors=errors,
         )
-
