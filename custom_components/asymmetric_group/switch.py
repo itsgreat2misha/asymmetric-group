@@ -1,10 +1,10 @@
 """Companion switches for Asymmetric Group.
 
-Each group gets three switches — one per dimension — that flip the
-runtime toggles. They live on the same device as the group light, so
-the mode control is stored *on the group itself* (config default +
-these switches / preset services at runtime), not in a separate
-user-managed helper.
+Each group gets four switches — one per dimension plus Enforce power
+scope — that flip the runtime toggles. They live on the same device as
+the group light, so the mode control is stored *on the group itself*
+(config default + these switches / preset services at runtime), not
+in a separate user-managed helper.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import (
     DOMAIN,
     TOGGLE_ATTRIBUTES,
+    TOGGLE_ENFORCE,
     TOGGLE_POWER,
     TOGGLE_STATE,
 )
@@ -29,6 +30,7 @@ _SWITCHES = (
     (TOGGLE_POWER, "asymmetric_power"),
     (TOGGLE_ATTRIBUTES, "asymmetric_attributes"),
     (TOGGLE_STATE, "asymmetric_state"),
+    (TOGGLE_ENFORCE, "enforce_power_scope"),
 )
 
 
@@ -37,7 +39,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the three companion switches for a group."""
+    """Set up the companion switches for a group."""
     from . import get_runtime
 
     runtime = get_runtime(hass, entry.entry_id)
