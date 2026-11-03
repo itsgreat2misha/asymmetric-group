@@ -11,7 +11,7 @@ config dict keys:
     state_members, hide_members, all_entities
 
 toggle dict keys:
-    power, attributes, state  (bools)
+    power, attributes, state, enforce  (bools)
 
 runtime state dict (used by apply_sparse_preset / snapshots):
     {
@@ -25,10 +25,10 @@ runtime state dict (used by apply_sparse_preset / snapshots):
 
 preset dict (SPARSE):
     Keys ``asymmetric_power`` / ``asymmetric_attributes`` /
-    ``asymmetric_state`` for toggles and the four ``*_members`` keys for
-    member lists. A key that is *present* is applied — including an
-    explicit ``False`` or an empty list. A key that is *absent* leaves
-    the current value untouched.
+    ``asymmetric_state`` / ``enforce_power_scope`` for toggles and the
+    four ``*_members`` keys for member lists. A key that is *present*
+    is applied — including an explicit ``False`` or an empty list. A
+    key that is *absent* leaves the current value untouched.
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ _PRESET_TOGGLE_MAP = {
     "asymmetric_power": "power",
     "asymmetric_attributes": "attributes",
     "asymmetric_state": "state",
+    "enforce_power_scope": "enforce",
 }
 
 
@@ -178,6 +179,40 @@ def apply_sparse_preset(runtime_state, preset, base):
             new_state["subgroups"][member_key] = _filtered(preset[member_key], base)
 
     return new_state
+
+
+def plan_enforcement(old_power_on, new_power_on, currently_on):
+    """Plan scope enforcement as (to_turn_off, to_turn_on).
+
+    Called when the *effective* power-ON set changes (toggle flip,
+    member edit, preset apply) and the group's Enforce power scope
+    toggle is on. The reconciliation is anchored to the OLD scope:
+
+    - Members that fell out of the set (old - new) and are currently
+      on are turned off — unconditionally: if one is lit, the group
+      was lit through its old scope by definition.
+    - Members that entered the set (new - old) are turned on only
+      when at least one OLD-scope member is currently on — i.e. the
+      group was actually lit through its old scope. When nothing in
+      the old scope is on the group is effectively dark, so the new
+      scope is only staged, never struck. A light that is on but was
+      in *neither* scope (turned on manually while excluded) does not
+      count toward "was on" and is left alone.
+
+    ``currently_on`` is the set of member entity_ids whose state is
+    exactly "on"; unknown/unavailable members are treated as off.
+    """
+    old_set = set(old_power_on or [])
+    new_set = set(new_power_on or [])
+    on = set(currently_on or ())
+    to_turn_off = [m for m in old_power_on or [] if m in old_set - new_set and m in on]
+    was_on = any(m in on for m in old_set)
+    to_turn_on = []
+    if was_on:
+        to_turn_on = [
+            m for m in new_power_on or [] if m in new_set - old_set and m not in on
+        ]
+    return to_turn_off, to_turn_on
 
 
 def mean_int(values):
