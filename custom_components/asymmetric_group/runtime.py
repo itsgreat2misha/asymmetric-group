@@ -1,8 +1,9 @@
 """Per-group runtime state for Asymmetric Group.
 
 A GroupRuntime holds everything that can change *without* editing the
-config entry: the three dimension toggles, the four subgroup member
-lists (as possibly modified by presets) and ``last_applied_preset``.
+config entry: the dimension toggles plus the Enforce power scope
+toggle, the four subgroup member lists (as possibly modified by
+presets) and ``last_applied_preset``.
 
 Runtime state is seeded from the config entry at setup and persisted in
 a per-entry Store, so preset-applied member sets survive a restart.
@@ -25,6 +26,7 @@ from .const import (
     CONF_ASYMMETRIC_STATE,
     CONF_ATTRIBUTE_MEMBERS,
     CONF_BASE_MEMBERS,
+    CONF_ENFORCE_POWER_SCOPE,
     CONF_HIDE_MEMBERS,
     CONF_NAME,
     CONF_POWER_OFF_MEMBERS,
@@ -33,6 +35,7 @@ from .const import (
     ENTRY_STORE_VERSION,
     MEMBER_KEYS,
     TOGGLE_ATTRIBUTES,
+    TOGGLE_ENFORCE,
     TOGGLE_POWER,
     TOGGLE_STATE,
     entry_store_key,
@@ -43,6 +46,7 @@ _CONFIG_TOGGLE_MAP = {
     CONF_ASYMMETRIC_POWER: TOGGLE_POWER,
     CONF_ASYMMETRIC_ATTRIBUTES: TOGGLE_ATTRIBUTES,
     CONF_ASYMMETRIC_STATE: TOGGLE_STATE,
+    CONF_ENFORCE_POWER_SCOPE: TOGGLE_ENFORCE,
 }
 
 
@@ -60,6 +64,10 @@ class GroupRuntime:
         self._listeners: list[Callable[[], None]] = []
         # entity_id of the group's light entity, set once it is added.
         self.entity_id: str | None = None
+        # True once the light entity is live. Enforcement only acts on
+        # changes made after setup — never during load/restore — so a
+        # restart can never strike or kill lights on its own.
+        self._live = False
 
         # --- seed from config -------------------------------------------
         self.toggles: dict[str, bool] = {
@@ -146,14 +154,16 @@ class GroupRuntime:
             callback()
 
     # ------------------------------------------------------------------
-    # Mutations (each persists + notifies)
+    # Mutations (each persists + notifies, then enforces scope)
     async def async_set_toggle(self, toggle_key: str, value: bool) -> None:
         if self.toggles.get(toggle_key) == value:
             self._notify()
             return
+        old_power_on = self.effective_sets()["power_on"]
         self.toggles[toggle_key] = bool(value)
         await self.async_save()
         self._notify()
+        await self._async_enforce_power_scope(old_power_on)
 
     def _apply_sparse(self, data: dict) -> None:
         new_state = engine.apply_sparse_preset(
@@ -169,10 +179,12 @@ class GroupRuntime:
         deliberately no drift/Custom tracking: later manual changes do
         not clear the label.
         """
+        old_power_on = self.effective_sets()["power_on"]
         self._apply_sparse(preset)
         self.last_applied_preset = preset_name
         await self.async_save()
         self._notify()
+        await self._async_enforce_power_scope(old_power_on)
 
     async def async_apply_sparse(self, data: dict) -> None:
         """Apply a sparse settings dict (toggles and/or member sets).
@@ -181,9 +193,52 @@ class GroupRuntime:
         ``data`` change; the last_applied_preset label is untouched
         because this was a direct edit, not a preset application.
         """
+        old_power_on = self.effective_sets()["power_on"]
         self._apply_sparse(data)
         await self.async_save()
         self._notify()
+        await self._async_enforce_power_scope(old_power_on)
+
+    # ------------------------------------------------------------------
+    # Scope enforcement (Enforce power scope toggle)
+    async def _async_enforce_power_scope(self, old_power_on: list[str]) -> None:
+        """Reconcile lit members after the effective power-ON set changed.
+
+        No-ops unless the group is live, the enforce toggle is on and
+        the effective set actually changed. The plan comes from the
+        pure engine (see plan_enforcement): members that fell out of
+        the set and are on are turned off; members that entered the
+        set are turned on only if the group was lit through its old
+        scope. Enforcement issues plain light calls — it never changes
+        the scope itself, so it cannot re-trigger.
+        """
+        if not self._live or not self.toggles.get(TOGGLE_ENFORCE):
+            return
+        new_power_on = self.effective_sets()["power_on"]
+        if set(new_power_on) == set(old_power_on):
+            return
+        currently_on = set()
+        for member in self.base_members:
+            state = self.hass.states.get(member)
+            if state is not None and state.state == "on":
+                currently_on.add(member)
+        to_turn_off, to_turn_on = engine.plan_enforcement(
+            old_power_on, new_power_on, currently_on
+        )
+        if to_turn_off:
+            await self.hass.services.async_call(
+                "light",
+                "turn_off",
+                {"entity_id": to_turn_off},
+                blocking=False,
+            )
+        if to_turn_on:
+            await self.hass.services.async_call(
+                "light",
+                "turn_on",
+                {"entity_id": to_turn_on},
+                blocking=False,
+            )
 
     def snapshot_preset(self) -> dict:
         """Full (non-sparse) preset snapshot of the current runtime."""
@@ -191,6 +246,7 @@ class GroupRuntime:
             CONF_ASYMMETRIC_POWER: self.toggles[TOGGLE_POWER],
             CONF_ASYMMETRIC_ATTRIBUTES: self.toggles[TOGGLE_ATTRIBUTES],
             CONF_ASYMMETRIC_STATE: self.toggles[TOGGLE_STATE],
+            CONF_ENFORCE_POWER_SCOPE: self.toggles[TOGGLE_ENFORCE],
         }
         for key in MEMBER_KEYS:
             snapshot[key] = list(self.subgroups[key])
@@ -206,6 +262,7 @@ class GroupRuntime:
     def register_entity_id(self, entity_id: str) -> None:
         """Record the light entity_id so services can find this runtime."""
         self.entity_id = entity_id
+        self._live = True
         domain_data = self.hass.data.setdefault(
             "asymmetric_group", {}
         )
@@ -213,6 +270,7 @@ class GroupRuntime:
         by_entity[entity_id] = self
 
     def unregister_entity_id(self) -> None:
+        self._live = False
         if self.entity_id is None:
             return
         by_entity = (
