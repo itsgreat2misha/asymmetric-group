@@ -29,6 +29,7 @@ from .const import (
     CONF_ASYMMETRIC_ATTRIBUTES,
     CONF_ASYMMETRIC_POWER,
     CONF_ASYMMETRIC_STATE,
+    CONF_ENFORCE_POWER_SCOPE,
     DOMAIN,
 )
 from .runtime import GroupRuntime
@@ -359,6 +360,7 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
             CONF_ASYMMETRIC_POWER: self._runtime.toggles["power"],
             CONF_ASYMMETRIC_ATTRIBUTES: self._runtime.toggles["attributes"],
             CONF_ASYMMETRIC_STATE: self._runtime.toggles["state"],
+            CONF_ENFORCE_POWER_SCOPE: self._runtime.toggles["enforce"],
             ATTR_LAST_APPLIED_PRESET: self._runtime.last_applied_preset,
         }
 
