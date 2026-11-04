@@ -2,4 +2,4 @@
 # release pins the Home Assistant version it tests against; 0.13.316
 # corresponds to Home Assistant 2026.2.3. Bump this pin to move the
 # HA version under test.
-pytest-homeassistant-custom-component==0.13.316
+pytest-homeassistant-custom-component==0.13.375
