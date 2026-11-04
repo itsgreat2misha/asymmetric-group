@@ -18,7 +18,7 @@ With an Asymmetric Group that's just how the group is set up, so it works the sa
 2. Install **Asymmetric Group** from HACS and restart Home Assistant.
 3. Go to **Settings → Devices & services → Helpers → Create helper → Asymmetric Group**.
 
-Requires Home Assistant 2025.1.0 or newer.
+Requires Home Assistant 2024.4.0 or newer.
 
 ## Upgrading
 
@@ -144,7 +144,7 @@ What happens, switch by switch:
 
 ## Troubleshooting
 
-- **The helper doesn't appear under Create helper.** The integration isn't loaded: confirm the HACS install finished, restart Home Assistant, and check **Settings → System → Logs** for `asymmetric_group` errors. HACS also hides integrations from Home Assistant versions older than the minimum in `hacs.json` (2025.1.0).
+- **The helper doesn't appear under Create helper.** The integration isn't loaded: confirm the HACS install finished, restart Home Assistant, and check **Settings → System → Logs** for `asymmetric_group` errors. HACS also hides integrations from Home Assistant versions older than the minimum in `hacs.json` (2024.4.0).
 - **A group light is missing or unavailable after editing members.** Editing a group under **Configure** reloads it; if a member light was renamed or removed, the group reports the remaining members. Re-open **Configure** and re-pick the member sets — member lists are filtered to the group's base members, so a removed light drops out of the sets.
 - **Turning the group on lit fewer lights than expected.** That's the feature, most likely: check the group's **Asymmetric power** switch — while it is on, turn-on uses only the Power-ON set. The group's `effective_power_on_members` attribute shows the set currently in effect.
 - **The group shows "on" while its lights look off (or the reverse).** Check the **Asymmetric state** switch and the `effective_state_members` attribute: while the switch is on, only the State set decides the group's state.

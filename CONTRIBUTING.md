@@ -24,15 +24,22 @@ with the standard library alone:
 python -m unittest discover -s tests
 ```
 
-Home Assistant level tests (config flow, light platform) are not in the
-repo yet — they are planned on top of
-[pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component).
-Until they land, cover member-set behaviour in the engine tests and verify
-flow changes in a dev Home Assistant instance.
+Home Assistant level tests (config flow, options flow, entry setup)
+live in `tests/test_config_flow.py` and run on top of
+[pytest-homeassistant-custom-component](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component):
 
-CI (`.github/workflows/validate.yaml`) runs the unit tests, the HACS
-action, and hassfest on every push — please make sure your change keeps
-all three green.
+```bash
+pip install -r requirements_test.txt
+python -m pytest tests/test_config_flow.py
+```
+
+The pin in `requirements_test.txt` selects the Home Assistant version
+under test. The minimum supported Home Assistant version is 2024.4.0
+(see `hacs.json`); the config-flow tests are also verified against it.
+
+CI (`.github/workflows/validate.yaml`) runs the unit tests, the
+HA-level tests, the HACS action, and hassfest on every push — please
+make sure your change keeps all of them green.
 
 ## Pull requests
 
