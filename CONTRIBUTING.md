@@ -47,3 +47,10 @@ make sure your change keeps all of them green.
 - Update the README when behaviour, services, or setup steps change.
 - Describe user-visible changes in the PR body; releases are cut from tags
   whose version matches `manifest.json`.
+
+## Repository workflow
+
+Changes land on `main` only through pull requests. The default branch is
+protected: force-pushes and branch deletion are blocked, and the CI checks
+(Tests, HA-level tests, HACS validation, Hassfest validation) must pass
+before a pull request can merge.
