@@ -89,7 +89,7 @@ class ResolveSetsTest(unittest.TestCase):
 
 
 class PlanTurnOnTest(unittest.TestCase):
-    """The Diana scenario: asymmetric power+attributes on, only
+    """The single-lamp scenario: asymmetric power+attributes on, only
     light 03 turns on, 02 was switched on manually, group OFF still
     sweeps everything (power_off = base, checked via resolve_sets)."""
 
@@ -98,7 +98,7 @@ class PlanTurnOnTest(unittest.TestCase):
         toggles = {"power": True, "attributes": True, "state": True}
         return engine.resolve_sets(config, toggles)
 
-    def test_diana_scenario_no_attribute_only(self):
+    def test_single_lamp_scenario_no_attribute_only(self):
         sets = self._sets(["light.b3"])
         activate, attribute_only = engine.plan_turn_on(
             sets, currently_on={"light.b2", "light.b3"}, has_attributes=True
@@ -107,7 +107,7 @@ class PlanTurnOnTest(unittest.TestCase):
         # 02 is on but not in the attribute scope -> untouched.
         self.assertEqual(attribute_only, [])
 
-    def test_diana_scenario_attribute_scope_widened(self):
+    def test_single_lamp_scenario_attribute_scope_widened(self):
         sets = self._sets(["light.b2", "light.b3"])
         activate, attribute_only = engine.plan_turn_on(
             sets, currently_on={"light.b2", "light.b3"}, has_attributes=True

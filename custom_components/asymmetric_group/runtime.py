@@ -140,8 +140,7 @@ class GroupRuntime:
 
     async def async_clear_store(self) -> None:
         """Drop persisted runtime state so the next setup re-seeds."""
-        # TODO(live-verify): Store.async_remove exists on current HA;
-        # confirm behaviour when no file exists yet.
+        # Store.async_remove is safe when no file exists yet.
         await self._store.async_remove()
 
     # ------------------------------------------------------------------

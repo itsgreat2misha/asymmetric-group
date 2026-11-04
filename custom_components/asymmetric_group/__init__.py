@@ -235,8 +235,7 @@ def _apply_hide_members(hass: HomeAssistant, runtime: GroupRuntime) -> None:
             continue
         if runtime.hide_members:
             if reg_entry.hidden_by is None:
-                # TODO(live-verify): async_update_entity(hidden_by=...)
-                # accepts an er.RegistryEntryHider enum value.
+                # hidden_by takes an er.RegistryEntryHider enum value.
                 registry.async_update_entity(
                     member_id, hidden_by=er.RegistryEntryHider.INTEGRATION
                 )

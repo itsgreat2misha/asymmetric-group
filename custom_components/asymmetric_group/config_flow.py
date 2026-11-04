@@ -287,9 +287,9 @@ class AsymmetricGroupOptionsFlow(OptionsFlow):
     """Options: member sets (conditional chain) + preset editor."""
 
     def __init__(self, config_entry) -> None:
-        # TODO(live-verify): current HA manages OptionsFlow.config_entry
-        # itself; storing the entry here is the long-standing pattern
-        # and harmless, but confirm no deprecation on the target version.
+        # The entry is also stored explicitly: current HA manages
+        # OptionsFlow.config_entry itself, and _config_entry below
+        # prefers the managed attribute when it is present.
         self._entry = config_entry
         self._working: dict = {}
         self._preset_name: str | None = None
@@ -376,7 +376,7 @@ class AsymmetricGroupOptionsFlow(OptionsFlow):
         store = Store(
             self.hass, ENTRY_STORE_VERSION, entry_store_key(entry.entry_id)
         )
-        # TODO(live-verify): Store.async_remove with no existing file.
+        # Store.async_remove is safe when no file exists yet.
         await store.async_remove()
         payload = {key: self._working.get(key) for key in _OPTION_KEYS}
         return self.async_create_entry(title="", data=payload)

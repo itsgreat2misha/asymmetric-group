@@ -1,5 +1,7 @@
 # Asymmetric Group
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+
 A Home Assistant helper that makes a light group where **turning on, turning off, changing brightness/colour, and the group's on/off state can each involve a different set of lights** — and you can switch each of those behaviours on and off whenever you like.
 
 In a regular light group, the same lights do everything. That makes a common wish impossible:
@@ -10,11 +12,25 @@ With an Asymmetric Group that's just how the group is set up, so it works the sa
 
 ## Installation
 
-1. In **HACS**, open **⋮ → Custom repositories** and add `https://github.com/itsgreat2misha/asymmetric-group` as an **Integration**.
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=itsgreat2misha&repository=asymmetric-group&category=integration)
+
+1. In **HACS**, open **⋮ → Custom repositories** and add `https://github.com/itsgreat2misha/asymmetric-group` as an **Integration** (or use the My Home Assistant button above).
 2. Install **Asymmetric Group** from HACS and restart Home Assistant.
 3. Go to **Settings → Devices & services → Helpers → Create helper → Asymmetric Group**.
 
 Requires Home Assistant 2025.1.0 or newer.
+
+## Upgrading
+
+Update through HACS as usual: **HACS → Asymmetric Group → Update**, then restart Home Assistant when prompted. Group configurations, presets, and runtime switch positions are stored by Home Assistant and survive upgrades; no re-setup is needed.
+
+## Uninstalling
+
+1. Delete each Asymmetric Group helper (**Settings → Devices & services → Helpers**, open the group, **⋮ → Delete**). Deleting a group removes its group light and its four switches; the member lights themselves are untouched.
+2. In **HACS**, open **Asymmetric Group → ⋮ → Remove**, then restart Home Assistant.
+3. Optionally remove the custom repository from **HACS → ⋮ → Custom repositories** afterwards.
+
+The shared preset library is stored under the integration's storage; removing the integration leaves that file behind harmlessly in `.storage` (it is only read while the integration is installed).
 
 ## Setting up a group
 
@@ -52,7 +68,7 @@ A fourth switch, **Enforce power scope** (off by default), reconciles lights tha
 - Lights that **entered** the set are turned on, but only if the group was actually lit through its old set (at least one old-set light on). If the group was dark, the new set is only staged — nothing turns on.
 - A light that is on but was in neither the old nor the new set (turned on by hand while excluded) is left alone, and doesn't count as "the group was lit".
 
-Enforcement never fires on startup or restart — only on a live change — and flipping the Enforce switch itself changes nothing until the next scope change. One refinement: a scope change does not return until it has *settled* — until every light enforcement turned off or on has actually registered its new state. That makes the change safe to sequence other work after: an automation that arms the scope at the start of a scene (before flipping another integration's switches, say) gets true ordering, because nothing after the call can observe the room mid-change. Dead lights never stall this: a light that is unavailable is skipped instantly, and a light that cannot be confirmed — it drops offline, or keeps reporting its old state — is dropped from the wait and named in a single warning in the Home Assistant log. A typical use: a lighting theme narrows the group for a "Dim" scene; with enforcement on, entering the scene also switches off the room's other lights that happened to be on, instead of only filtering the next turn-on.
+Enforcement never fires on startup or restart — only on a live change — and flipping the Enforce switch itself changes nothing until the next scope change. One refinement: a scope change does not return until it has *settled* — until every light enforcement turned off or on has actually registered its new state. That makes the change safe to sequence other work after: an automation that arms the scope at the start of a scene (before flipping another integration's switches, say) gets true ordering, because nothing after the call can observe the room mid-change. Dead lights never stall this: a light that is unavailable is skipped instantly, and a light that cannot be confirmed — it drops offline, or keeps reporting its old state — is dropped from the wait and named in a single warning in the Home Assistant log. A typical use: a lighting scene (call it "Movie night") narrows the group to one lamp; with enforcement on, entering the scene also switches off the room's other lights that happened to be on, instead of only filtering the next turn-on.
 
 ## Controlling groups from automations
 
@@ -103,7 +119,7 @@ Create an Asymmetric Group **Bedroom lights** with all four lights as base membe
 - **Asymmetric attributes / state:** off (they use all base lights)
 - **Enforce power scope:** on
 
-A lighting automation flips the group's **Asymmetric power** switch: off for the daytime/evening themes, on for the night ("Dim") theme. Adaptive Lighting is configured with the four individual lights, so it adapts each light that is on, whichever mode the group is in.
+A lighting automation flips the group's **Asymmetric power** switch: off during the day and evening, on when the household's "Night" scene runs. Adaptive Lighting is configured with the four individual lights, so it adapts each light that is on, whichever mode the group is in.
 
 What happens, switch by switch:
 
@@ -125,6 +141,21 @@ What happens, switch by switch:
 - Switching a behaviour on or off can change the group's reported on/off state without any light changing — for example, turning *Asymmetric state* off when a hand-lit lamp is on suddenly counts that lamp. That's inherent to choosing which lights define the state.
 - Light groups only for now; member lights that are themselves groups are not supported.
 - A group's current settings survive restarts. Editing the group under **Configure** resets it to the configured sets, discarding changes made by presets or `set_members` since — the Configure page is the starting point after every edit.
+
+## Troubleshooting
+
+- **The helper doesn't appear under Create helper.** The integration isn't loaded: confirm the HACS install finished, restart Home Assistant, and check **Settings → System → Logs** for `asymmetric_group` errors. HACS also hides integrations from Home Assistant versions older than the minimum in `hacs.json` (2025.1.0).
+- **A group light is missing or unavailable after editing members.** Editing a group under **Configure** reloads it; if a member light was renamed or removed, the group reports the remaining members. Re-open **Configure** and re-pick the member sets — member lists are filtered to the group's base members, so a removed light drops out of the sets.
+- **Turning the group on lit fewer lights than expected.** That's the feature, most likely: check the group's **Asymmetric power** switch — while it is on, turn-on uses only the Power-ON set. The group's `effective_power_on_members` attribute shows the set currently in effect.
+- **The group shows "on" while its lights look off (or the reverse).** Check the **Asymmetric state** switch and the `effective_state_members` attribute: while the switch is on, only the State set decides the group's state.
+- **A scope change logged a warning about an unconfirmed light.** With **Enforce power scope** on, a member that drops offline (or keeps reporting its old state) during reconciliation is named once in the log and skipped — everything else still settles. Check that light's own connectivity.
+- **Still stuck?** Enable debug logging for the integration and reproduce the problem before filing an issue:
+
+```yaml
+logger:
+  logs:
+    custom_components.asymmetric_group: debug
+```
 
 ## FAQ
 

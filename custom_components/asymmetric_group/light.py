@@ -90,8 +90,8 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
         # Restore last_applied_preset as a fallback if the runtime
         # store had nothing (the store normally carries it).
         if self._runtime.last_applied_preset is None:
-            # TODO(live-verify): RestoreEntity.async_get_last_extra_data
-            # returns a RestoredExtraData with as_dict().
+            # async_get_last_extra_data returns a RestoredExtraData
+            # whose as_dict() gives the stored payload.
             last_extra = await self.async_get_last_extra_data()
             if last_extra is not None:
                 data = last_extra.as_dict()
