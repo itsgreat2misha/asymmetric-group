@@ -230,3 +230,59 @@ async def test_setup_entry_produces_group_light_and_switches(
         switch = hass.states.get(f"switch.test_group_{suffix}")
         assert switch is not None, suffix
         assert switch.state == "off"
+
+
+async def test_group_reports_member_color_temp_range_in_kelvin(
+    hass: HomeAssistant,
+) -> None:
+    """The group aggregates member min/max colour temperature in kelvin.
+
+    Regression test: the light overrode color_temp_kelvin but not
+    min/max_color_temp_kelvin, so HA's base LightEntity fell back to
+    the legacy mireds defaults and warned on state writes (core PR
+    #79591). The range follows core's group light: lowest member
+    minimum / highest member maximum over the whole attribute scope,
+    including members that are off.
+    """
+    hass.states.async_set(
+        "light.bedroom_1",
+        "on",
+        {
+            "supported_color_modes": ["color_temp"],
+            "color_mode": "color_temp",
+            "color_temp_kelvin": 3000,
+            "min_color_temp_kelvin": 2200,
+            "max_color_temp_kelvin": 6500,
+        },
+    )
+    hass.states.async_set(
+        "light.bedroom_2",
+        "off",
+        {
+            "supported_color_modes": ["color_temp"],
+            "color_mode": "color_temp",
+            "min_color_temp_kelvin": 2700,
+            "max_color_temp_kelvin": 6000,
+        },
+    )
+    hass.states.async_set(
+        "light.bedroom_3",
+        "off",
+        {
+            "supported_color_modes": ["color_temp"],
+            "color_mode": "color_temp",
+            "min_color_temp_kelvin": 2000,
+            "max_color_temp_kelvin": 7000,
+        },
+    )
+
+    entry = MockConfigEntry(domain=DOMAIN, title="Test Group", data=_entry_data())
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state == ConfigEntryState.LOADED
+
+    group = hass.states.get("light.test_group")
+    assert group is not None
+    assert group.attributes["min_color_temp_kelvin"] == 2000
+    assert group.attributes["max_color_temp_kelvin"] == 7000

@@ -36,6 +36,14 @@ from .runtime import GroupRuntime
 
 _EFFECT_BIT = LightEntityFeature.EFFECT
 
+# Fallbacks when no member reports a colour-temperature range; the
+# same literals core's group light reduces with (the DEFAULT_MIN_KELVIN
+# / DEFAULT_MAX_KELVIN names are not importable from
+# homeassistant.components.light on the oldest HA this integration
+# supports, so they cannot be referenced directly).
+_FALLBACK_MIN_KELVIN = 2000
+_FALLBACK_MAX_KELVIN = 6500
+
 
 class _PresetExtraData(ExtraStoredData):
     """Restored extra data carrying last_applied_preset."""
@@ -283,6 +291,43 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
             return None
         value = self._average_attr("color_temp_kelvin")
         return int(round(value)) if value is not None else None
+
+    def _member_capability_values(self, attr: str) -> list:
+        """A capability attribute over all attribute-scope members.
+
+        Collected over the whole scope rather than only the lit
+        members (like supported_color_modes and effect_list) so the
+        reported capabilities do not flap as members toggle.
+        """
+        values = []
+        sets = self._runtime.effective_sets()
+        for member in sets["attributes"]:
+            state = self._member_state(member)
+            if state is not None and state.attributes.get(attr) is not None:
+                values.append(state.attributes[attr])
+        return values
+
+    @property
+    def min_color_temp_kelvin(self) -> int:
+        """Warmest colour temperature any member supports.
+
+        Without this override HA's base LightEntity falls back to the
+        legacy mireds defaults and warns on state writes (core PR
+        #79591). Mirror core's group light: the lowest member minimum,
+        with a fixed fallback when no member reports a range.
+        """
+        values = self._member_capability_values("min_color_temp_kelvin")
+        return int(min(values)) if values else _FALLBACK_MIN_KELVIN
+
+    @property
+    def max_color_temp_kelvin(self) -> int:
+        """Coldest colour temperature any member supports.
+
+        Same core-group reduction as min_color_temp_kelvin: the
+        highest member maximum, with a fixed fallback.
+        """
+        values = self._member_capability_values("max_color_temp_kelvin")
+        return int(max(values)) if values else _FALLBACK_MAX_KELVIN
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
