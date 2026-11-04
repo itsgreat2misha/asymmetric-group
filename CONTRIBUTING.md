@@ -54,3 +54,7 @@ Changes land on `main` only through pull requests. The default branch is
 protected: force-pushes and branch deletion are blocked, and the CI checks
 (Tests, HA-level tests, HACS validation, Hassfest validation) must pass
 before a pull request can merge.
+
+## AI involvement
+
+This project's development uses AI-agent assistance. Every change is reviewed by the repository owner, who remains the responsible human for the project.
