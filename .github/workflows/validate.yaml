@@ -54,7 +54,9 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          # The pinned HA test harness (see requirements_test.txt)
+          # tracks a Home Assistant release that requires Python 3.14.
+          python-version: "3.14"
       - name: Install HA test harness
         run: pip install -r requirements_test.txt
       - name: Config flow and setup tests
