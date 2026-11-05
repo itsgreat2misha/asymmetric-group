@@ -1,8 +1,12 @@
 """Config and options flow for Asymmetric Group.
 
 Creation is a helper-style flow:
-  1. user       — name + base members (ALL lights involved in any way);
-                  group entities are rejected as members (no nesting).
+  1. user       — name + base members (ALL lights involved in any way).
+                  Members may themselves be light groups (core or
+                  asymmetric); a group member stays atomic — it sits in
+                  each set as one unit. Only a membership cycle (the
+                  group containing itself, directly or transitively) is
+                  rejected.
   2. sets       — the dimension toggles plus Enforce power scope
                   (their starting/default state) plus hide_members /
                   all_entities.
@@ -28,6 +32,8 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.util import slugify
 from homeassistant.helpers.selector import (
     BooleanSelector,
     EntitySelector,
@@ -86,14 +92,43 @@ def _light_selector() -> EntitySelector:
     return EntitySelector(EntitySelectorConfig(domain="light", multiple=True))
 
 
-def _find_group_members(hass: HomeAssistant, members: list[str]) -> list[str]:
-    """Members that are themselves groups (state has an entity_id attr)."""
-    groups = []
-    for member in members:
-        state = hass.states.get(member)
-        if state is not None and "entity_id" in state.attributes:
-            groups.append(member)
-    return groups
+def _creates_cycle(
+    hass: HomeAssistant, own_entity_id: str, members: list[str]
+) -> bool:
+    """True if ``members`` would put the group inside itself.
+
+    Members may be groups (core or asymmetric); like core groups, a
+    group member is just a member. The one configuration that cannot
+    work is a cycle — the group containing itself, directly or
+    transitively — because power/state fan-out would chase its own
+    tail. Walk each member's ``entity_id`` attribute (the attribute
+    every group reports) looking for ``own_entity_id``. A member with
+    no state, or a state without the attribute, is a leaf; the visited
+    set keeps a pre-existing loop among *other* groups from hanging
+    the walk.
+    """
+    seen: set[str] = set()
+    stack = list(members)
+    while stack:
+        entity_id = stack.pop()
+        if entity_id == own_entity_id:
+            return True
+        if entity_id in seen:
+            continue
+        seen.add(entity_id)
+        state = hass.states.get(entity_id)
+        if state is not None:
+            stack.extend(state.attributes.get("entity_id") or [])
+    return False
+
+
+def _group_entity_id(hass: HomeAssistant, entry_id: str) -> str | None:
+    """The light entity_id of an existing entry's group, if registered."""
+    registry = er.async_get(hass)
+    for reg_entry in er.async_entries_for_config_entry(registry, entry_id):
+        if reg_entry.domain == "light" and reg_entry.platform == DOMAIN:
+            return reg_entry.entity_id
+    return None
 
 
 def _toggles_schema(defaults: dict) -> vol.Schema:
@@ -200,10 +235,13 @@ class AsymmetricGroupConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             base_members = list(user_input.get(CONF_BASE_MEMBERS) or [])
-            if _find_group_members(self.hass, base_members):
-                # Nested groups are rejected in v1: their expansion
-                # semantics under asymmetric sets are undefined.
-                errors[CONF_BASE_MEMBERS] = "group_member_not_allowed"
+            # Group members are fine (they stay atomic, like core
+            # groups); only a cycle is rejected. The group's own
+            # entity does not exist yet, so check against the
+            # entity_id its name will generate.
+            own_entity_id = f"light.{slugify(user_input.get(CONF_NAME) or '')}"
+            if _creates_cycle(self.hass, own_entity_id, base_members):
+                errors[CONF_BASE_MEMBERS] = "group_member_cycle"
             else:
                 self._working = {
                     CONF_NAME: user_input[CONF_NAME],
@@ -321,6 +359,21 @@ class AsymmetricGroupOptionsFlow(OptionsFlow):
                 data_schema=_toggles_schema(self._working),
             )
         self._working.update(user_input)
+        # Base members cannot be edited here, but a cycle can appear
+        # after creation (a member group edited elsewhere to include
+        # this group). Refuse to save a cyclic configuration: the
+        # membership would make power/state fan-out chase itself.
+        own_entity_id = _group_entity_id(self.hass, entry.entry_id)
+        if own_entity_id is not None and _creates_cycle(
+            self.hass,
+            own_entity_id,
+            list(self._working.get(CONF_BASE_MEMBERS) or []),
+        ):
+            return self.async_show_form(
+                step_id="members",
+                data_schema=_toggles_schema(self._working),
+                errors={"base": "group_member_cycle"},
+            )
         return await self._route_next("")
 
     async def async_step_members_power(

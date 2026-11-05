@@ -4,6 +4,11 @@ One light entity per config entry. Externally it looks like a core
 light group (same entity_id semantics, same service surface), but the
 member set used for turn-on, turn-off, attribute changes and state
 computation is resolved per dimension from the runtime.
+
+A member may itself be a light group (core or asymmetric). It stays
+atomic, exactly as in core groups: it is called as one entity and
+contributes its own aggregated state as one member — nothing here
+ever expands a member into its own members.
 """
 
 from __future__ import annotations
@@ -395,10 +400,13 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         sets = self._runtime.effective_sets()
         return {
-            # entity_id always reports the full base set, like a core
-            # group. Note: core's expand() does not expand this platform
-            # (it only recognises platform: group), so templates must read
-            # this attribute rather than expand() the group itself.
+            # entity_id always reports the full base set — the DIRECT
+            # members only, like a core group: a member that is itself
+            # a group is listed as itself, never flattened into its
+            # own members. Note: core's expand() does not expand this
+            # platform (it only recognises platform: group), so
+            # templates must read this attribute rather than expand()
+            # the group itself.
             "entity_id": self._runtime.base_members,
             "effective_power_on_members": sets["power_on"],
             "effective_power_off_members": sets["power_off"],

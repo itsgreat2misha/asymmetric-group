@@ -104,6 +104,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             raise ServiceValidationError(
                 "Nothing to change: pass at least one toggle or member set"
             )
+        # Member sets cannot create a cycle (they are filtered to the
+        # base set), but a cycle can appear after creation when a
+        # member group is edited elsewhere to include this group.
+        # Refuse to reconfigure a group whose membership already
+        # loops back on itself.
+        from .config_flow import _creates_cycle
+
+        if _creates_cycle(hass, call.data["entity_id"], runtime.base_members):
+            raise ServiceValidationError(
+                "This group's members form a cycle: the group contains "
+                "itself, directly or through a member group. Fix the "
+                "member group before changing this group."
+            )
         await runtime.async_apply_sparse(changes)
 
     hass.services.async_register(
