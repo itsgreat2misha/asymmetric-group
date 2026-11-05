@@ -56,7 +56,7 @@ Each behaviour has its own switch on the group's device page — **Asymmetric po
 Two guarantees hold at all times:
 
 - **Changing brightness or colour never turns a light on.** If a brightness change reaches the group, lights in the attribute set that are already on get the new brightness — lights that are off stay off, and nothing flashes on and off.
-- **The group's light list always shows all base lights** (in its `entity_id` attribute), so `expand()` and templates keep working as they do with a regular group. Extra attributes (`effective_power_on_members`, `effective_attribute_members`, and so on) show which sets are currently in effect.
+- **The group's light list always shows all base lights** (in its `entity_id` attribute). One template exception: `expand()` does not expand Asymmetric Groups — see *Good to know* below. Extra attributes (`effective_power_on_members`, `effective_attribute_members`, and so on) show which sets are currently in effect.
 
 Group lights can't be members of an Asymmetric Group — add the individual lights instead.
 
@@ -139,6 +139,7 @@ What happens, switch by switch:
 - Only calls made **to the group itself** are affected. Anything that addresses the lights directly — an area or label target, a scene, or another integration — works exactly as before.
 - If a behaviour's lights are all off while the group is on for another reason (say, the group is on because a State light is on, but no Attribute light is), the group reports its colour and brightness from whichever lights are actually on, so dashboards always show sensible values.
 - Switching a behaviour on or off can change the group's reported on/off state without any light changing — for example, turning *Asymmetric state* off when a hand-lit lamp is on suddenly counts that lamp. That's inherent to choosing which lights define the state.
+- **Templates: `expand()` does not expand an Asymmetric Group.** Home Assistant's `expand()` only recognises groups created with the core Group integration, so `expand(light.my_group)` returns the group itself instead of its lights. Read the members from the attribute instead — `expand(state_attr('light.my_group', 'entity_id'))` — and if the group sits inside a regular group, apply the same step once more to anything in the result that still has an `entity_id` attribute. Targeting the group in service calls is unaffected.
 - Light groups only for now; member lights that are themselves groups are not supported.
 - A group's current settings survive restarts. Editing the group under **Configure** resets it to the configured sets, discarding changes made by presets or `set_members` since — the Configure page is the starting point after every edit.
 
