@@ -396,7 +396,9 @@ class AsymmetricGroupLight(RestoreEntity, LightEntity):
         sets = self._runtime.effective_sets()
         return {
             # entity_id always reports the full base set, like a core
-            # group; automations expanding the group see every member.
+            # group. Note: core's expand() does not expand this platform
+            # (it only recognises platform: group), so templates must read
+            # this attribute rather than expand() the group itself.
             "entity_id": self._runtime.base_members,
             "effective_power_on_members": sets["power_on"],
             "effective_power_off_members": sets["power_off"],
