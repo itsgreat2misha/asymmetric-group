@@ -2,7 +2,7 @@
 
 These run against a real (test) Home Assistant instance via
 pytest-homeassistant-custom-component. They cover the helper creation
-flow end to end, the group-member rejection, the options flow, and
+flow end to end, group entities as members, the options flow, and
 that a created/configured entry sets up and produces its entities.
 """
 
@@ -132,10 +132,14 @@ async def test_flow_power_step_shown_only_when_asymmetric_power_on(
     assert result["data"][CONF_POWER_OFF_MEMBERS] == MEMBERS
 
 
-async def test_flow_rejects_group_entities_as_members(
+async def test_flow_accepts_group_entities_as_members(
     hass: HomeAssistant,
 ) -> None:
-    """A member that is itself a group is rejected with an error."""
+    """A member that is itself a group is accepted (nested groups).
+
+    Group members stay atomic, exactly as in core groups; only a
+    membership cycle is rejected (see tests/test_nesting.py).
+    """
     hass.states.async_set(
         "light.some_group", "on", {"entity_id": ["light.bedroom_1"]}
     )
@@ -144,12 +148,18 @@ async def test_flow_rejects_group_entities_as_members(
     )
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {CONF_NAME: "Bad Group", CONF_BASE_MEMBERS: ["light.some_group"]},
+        {CONF_NAME: "Nested Group", CONF_BASE_MEMBERS: ["light.some_group"]},
     )
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "user"
-    assert result["errors"] == {CONF_BASE_MEMBERS: "group_member_not_allowed"}
-    assert hass.config_entries.async_entries(DOMAIN) == []
+    assert result["step_id"] == "sets"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], TOGGLES_OFF
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_BASE_MEMBERS] == ["light.some_group"]
+    # Subgroups default to the full base set, group member included.
+    assert result["data"][CONF_POWER_ON_MEMBERS] == ["light.some_group"]
 
 
 async def test_options_flow_members_round_trip(hass: HomeAssistant) -> None:
